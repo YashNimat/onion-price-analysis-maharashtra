@@ -1,0 +1,4 @@
+commodity,model,mape_pct,train_weeks,holdout_weeks
+Onion,Naive (last value),19.084047378490787,123,12
+Onion,Seasonal naive (same week last year),40.02687280981769,123,12
+Onion,"Holt-Winters (damped trend, seasonal)",7.733360071641542,123,12

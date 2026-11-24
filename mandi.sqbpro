@@ -1,0 +1,88 @@
+<?xml version="1.0" encoding="UTF-8"?><sqlb_project><db path="C:/Users/yashn/Desktop/my files/MYProjects/Dta/mandi-price-intelligence/mandi-price-intelligence/db/mandi.db" readonly="0" foreign_keys="1" case_sensitive_like="0" temp_store="0" wal_autocheckpoint="1000" synchronous="2"/><attached/><window><main_tabs open="structure browser pragmas query" current="3"/></window><tab_structure><column_width id="0" width="300"/><column_width id="1" width="0"/><column_width id="2" width="100"/><column_width id="3" width="1999"/><column_width id="4" width="0"/><expanded_item id="0" parent="1"/><expanded_item id="1" parent="1"/><expanded_item id="2" parent="1"/><expanded_item id="3" parent="1"/></tab_structure><tab_browse><table title="fact_prices" custom_title="0" dock_id="1" table="4,11:mainfact_prices"/><dock_state state="000000ff00000000fd00000001000000020000043c00000314fc0100000001fb000000160064006f0063006b00420072006f007700730065003101000000000000043c0000015c00ffffff0000043c0000000000000004000000040000000800000008fc00000000"/><default_encoding codec=""/><browse_table_settings><table schema="main" name="dim_market" show_row_id="0" encoding="" plot_x_axis="" unlock_view_pk="_rowid_" freeze_columns="0"><sort/><column_widths><column index="1" value="93"/><column index="2" value="47"/><column index="3" value="148"/></column_widths><filter_values/><conditional_formats/><row_id_formats/><display_formats/><hidden_columns/><plot_y_axes/><global_filter/></table><table schema="main" name="fact_prices" show_row_id="0" encoding="" plot_x_axis="" unlock_view_pk="_rowid_" freeze_columns="0"><sort/><column_widths><column index="1" value="85"/><column index="2" value="93"/><column index="3" value="47"/><column index="4" value="148"/><column index="5" value="70"/><column index="6" value="124"/><column index="7" value="40"/><column index="8" value="64"/><column index="9" value="67"/><column index="10" value="77"/><column index="11" value="72"/><column index="12" value="61"/><column index="13" value="70"/></column_widths><filter_values/><conditional_formats/><row_id_formats/><display_formats/><hidden_columns/><plot_y_axes/><global_filter/></table></browse_table_settings></tab_browse><tab_sql><sql name="SQL 1*">
+SELECT commodity,
+       COUNT(*)                         AS rows_,
+       COUNT(DISTINCT market)           AS markets,
+       MIN(price_date)                  AS first_date,
+       MAX(price_date)                  AS last_date,
+       COUNT(DISTINCT price_date)       AS days_with_data
+FROM fact_prices
+GROUP BY commodity
+ORDER BY rows_ DESC;
+
+WITH monthly AS (
+    SELECT commodity,
+           SUBSTR(price_date, 1, 7) AS ym,
+           CAST(SUBSTR(price_date, 6, 2) AS INTEGER) AS month_no,
+           AVG(modal_price) AS avg_price
+    FROM fact_prices WHERE is_outlier = 0
+    GROUP BY commodity, ym
+)
+SELECT commodity, ym, ROUND(avg_price, 0) AS avg_price,
+       ROUND(100.0 * (avg_price - LAG(avg_price, 12) OVER (PARTITION BY commodity ORDER BY ym))
+             / LAG(avg_price, 12) OVER (PARTITION BY commodity ORDER BY ym), 1) AS yoy_pct
+FROM monthly
+ORDER BY commodity, ym;
+
+WITH m AS (
+    SELECT commodity,
+           SUBSTR(price_date, 1, 4) AS yr,
+           CAST(SUBSTR(price_date, 6, 2) AS INTEGER) AS month_no,
+           AVG(modal_price) AS month_avg
+    FROM fact_prices WHERE is_outlier = 0
+    GROUP BY commodity, yr, month_no
+), y AS (
+    SELECT commodity, yr, AVG(month_avg) AS year_avg FROM m GROUP BY commodity, yr
+)
+SELECT m.commodity, m.month_no,
+       ROUND(AVG(m.month_avg / y.year_avg), 3) AS seasonal_index,
+       RANK() OVER (PARTITION BY m.commodity ORDER BY AVG(m.month_avg / y.year_avg) DESC) AS best_sell_rank
+FROM m JOIN y ON y.commodity = m.commodity AND y.yr = m.yr
+GROUP BY m.commodity, m.month_no
+ORDER BY m.commodity, best_sell_rank;
+
+SELECT commodity, price_date, ROUND(avg_modal_price, 0) AS price,
+       ROUND(AVG(avg_modal_price) OVER w7, 0)  AS ma_7d,
+       ROUND(AVG(avg_modal_price) OVER w30, 0) AS ma_30d,
+       ROUND(100.0 * (MAX(avg_modal_price) OVER w30 - MIN(avg_modal_price) OVER w30)
+             / AVG(avg_modal_price) OVER w30, 1) AS range_pct_30d
+FROM v_daily_commodity
+WINDOW w7  AS (PARTITION BY commodity ORDER BY price_date ROWS BETWEEN 6 PRECEDING AND CURRENT ROW),
+       w30 AS (PARTITION BY commodity ORDER BY price_date ROWS BETWEEN 29 PRECEDING AND CURRENT ROW)
+ORDER BY commodity, price_date;
+
+WITH recent AS (
+    SELECT commodity, market, AVG(modal_price) AS mkt_avg, COUNT(*) AS n_obs
+    FROM fact_prices
+    WHERE is_outlier = 0
+      AND price_date &gt;= DATE((SELECT MAX(price_date) FROM fact_prices), '-30 day')
+    GROUP BY commodity, market
+    HAVING n_obs &gt;= 5
+), state_avg AS (
+    SELECT commodity, AVG(mkt_avg) AS state_avg FROM recent GROUP BY commodity
+)
+SELECT r.commodity, r.market, ROUND(r.mkt_avg, 0) AS avg_price,
+       ROUND(s.state_avg, 0) AS state_avg,
+       ROUND(100.0 * (r.mkt_avg - s.state_avg) / s.state_avg, 1) AS premium_pct,
+       RANK() OVER (PARTITION BY r.commodity ORDER BY r.mkt_avg DESC) AS price_rank
+FROM recent r JOIN state_avg s USING (commodity)
+ORDER BY r.commodity, price_rank;
+
+WITH d AS (
+    SELECT commodity, price_date, avg_modal_price,
+           AVG(avg_modal_price) OVER (PARTITION BY commodity ORDER BY price_date
+                                      ROWS BETWEEN 30 PRECEDING AND 1 PRECEDING) AS prev_30d_avg
+    FROM v_daily_commodity
+)
+SELECT commodity, price_date, ROUND(avg_modal_price, 0) AS price, ROUND(prev_30d_avg, 0) AS prev_30d_avg,
+       ROUND(100.0 * (avg_modal_price - prev_30d_avg) / prev_30d_avg, 1) AS change_pct
+FROM d
+WHERE prev_30d_avg IS NOT NULL
+  AND avg_modal_price &lt; 0.85 * prev_30d_avg
+  AND price_date &gt;= DATE((SELECT MAX(price_date) FROM fact_prices), '-7 day')
+ORDER BY change_pct;
+
+SELECT market,count(*) as observations from fact_prices GROUP by market ORDER by observations DESC LIMIT 5;
+
+SELECT SUBSTR(price_date, 1, 4) AS yr,round(avg(modal_price)) as Avgerae ,count(*)as obvs from fact_prices GROUP by yr;
+
+SELECT variety,round(avg(modal_price)) as Avgre from fact_prices where variety is not NULL GROUP by variety;</sql><current_tab id="0"/></tab_sql></sqlb_project>

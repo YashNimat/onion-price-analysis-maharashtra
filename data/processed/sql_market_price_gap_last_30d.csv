@@ -1,0 +1,7 @@
+commodity,market,avg_price,state_avg,premium_pct,price_rank
+Onion,Mumbai,1392.0,1188.0,17.2,1
+Onion,Lasalgaon,1215.0,1188.0,2.3,2
+Onion,Pune,1170.0,1188.0,-1.5,3
+Onion,Kolhapur,1167.0,1188.0,-1.8,4
+Onion,Solapur,1120.0,1188.0,-5.7,5
+Onion,Yeola,1062.0,1188.0,-10.5,6

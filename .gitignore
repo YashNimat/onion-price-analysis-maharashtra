@@ -1,0 +1,13 @@
+# secrets and environments
+.env
+venv/
+.venv/
+# generated files (rebuild with: python src/run_all.py)
+db/*.db
+data/processed/
+__pycache__/
+*.pyc
+# editor / OS / Office temp files
+.DS_Store
+~$*
+.vscode/

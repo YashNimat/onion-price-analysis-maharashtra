@@ -1,0 +1,2 @@
+commodity,current_price,best_week,expected_price,uplift_pct,model,backtest_mape_pct,naive_mape_pct,improvement_vs_naive_pct,confidence,action,history_weeks,data_end
+Onion,1145.8645833333333,2022-10-17,3809.6634286596627,232.47065002893345,"Holt-Winters (damped trend, seasonal)",7.733360071641542,19.084047378490787,59.47735866366774,Low (extreme forecast),No reliable recommendation,135,2022-07-25
